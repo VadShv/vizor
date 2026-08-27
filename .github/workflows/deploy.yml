@@ -26,8 +26,9 @@ jobs:
           username: user1
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           script: |
+            export PATH="$HOME/.local/bin:$PATH"
             cd ~/vizor
             git pull origin main
             npm install --no-audit --no-fund
             npm run build
-            pm2 restart vizor || pm2 start dist/index.mjs --name vizor --env production
+            pm2 restart vizor || pm2 start dist/index.mjs --name vizor
