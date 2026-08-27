@@ -43,6 +43,12 @@ export default function Home() {
       try {
         const ds = await parseFileInWorker(file);
         setDataset(ds);
+        if (ds.truncated) {
+          toast({
+            title: "Файл обрезан",
+            description: "Загружено только первые 100 000 строк",
+          });
+        }
         navigate("/dashboard");
       } catch (e) {
         toast({

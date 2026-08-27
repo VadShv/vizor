@@ -25,9 +25,22 @@ export interface Dataset {
   name: string;
   rows: Record<string, unknown>[];
   columns: ColumnProfile[];
+  truncated?: boolean;
 }
 
 // ---------- Value parsing ----------
+
+function safeMin(arr: number[]): number {
+  let m = arr[0];
+  for (let i = 1; i < arr.length; i++) if (arr[i] < m) m = arr[i];
+  return m;
+}
+
+function safeMax(arr: number[]): number {
+  let m = arr[0];
+  for (let i = 1; i < arr.length; i++) if (arr[i] > m) m = arr[i];
+  return m;
+}
 
 const NUM_RE = /^-?[\d\s\u00a0.,]+%?$/;
 
@@ -46,9 +59,8 @@ export function toNumber(v: unknown): number | null {
     else s = s.replace(/,/g, "");
   } else if (hasComma) {
     const parts = s.split(",");
-    if (parts.length === 2 && parts[1].length !== 3) s = s.replace(",", ".");
-    else if (parts.length === 2) s = s.replace(",", "."); // считаем десятичной
-    else s = s.replace(/,/g, "");
+    if (parts.length === 2) s = s.replace(",", "."); // десятичная запятая
+    else s = s.replace(/,/g, ""); // разделитель тысяч
   }
   const n = Number(s);
   return isFinite(n) ? n : null;
@@ -145,8 +157,8 @@ export function profileColumns(rows: Record<string, unknown>[]): ColumnProfile[]
       p.median = quantile(sorted, 0.5);
     }
     if (type === "date" && dates.length) {
-      p.dateMin = new Date(Math.min(...dates));
-      p.dateMax = new Date(Math.max(...dates));
+      p.dateMin = new Date(safeMin(dates));
+      p.dateMax = new Date(safeMax(dates));
     }
     return p;
   });
@@ -235,8 +247,9 @@ export function timeSeries(
     points.push({ d, n: metric ? toNumber(r[metric]) : null });
   }
   if (!points.length) return { data: [], grain: "month" };
-  const min = Math.min(...points.map((p) => p.d.getTime()));
-  const max = Math.max(...points.map((p) => p.d.getTime()));
+  const times = points.map((p) => p.d.getTime());
+  const min = safeMin(times);
+  const max = safeMax(times);
   const spanDays = (max - min) / 86400000;
   const grain: TimeGrain = spanDays <= 62 ? "day" : spanDays <= 730 ? "month" : "year";
 
@@ -284,8 +297,8 @@ export function histogram(rows: Record<string, unknown>[], col: string, binCount
     if (n !== null) nums.push(n);
   }
   if (nums.length < 2) return [];
-  const min = Math.min(...nums);
-  const max = Math.max(...nums);
+  const min = safeMin(nums);
+  const max = safeMax(nums);
   if (min === max) return [{ label: formatNumber(min), value: nums.length }];
   const width = (max - min) / binCount;
   const bins = new Array(binCount).fill(0);
@@ -379,12 +392,25 @@ export async function parseFile(file: File): Promise<Dataset> {
   const ext = file.name.split(".").pop()?.toLowerCase();
   const buf = await file.arrayBuffer();
   let rows: Record<string, unknown>[] = [];
+  let sheetName: string | undefined;
 
   if (ext === "xlsx" || ext === "xls") {
     const XLSX = await import("xlsx");
     const wb = XLSX.read(buf, { cellDates: true });
-    const sheet = wb.Sheets[wb.SheetNames[0]];
-    rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+    // при нескольких листах выбираем тот, где больше данных
+    if (wb.SheetNames.length > 1) {
+      let best = wb.SheetNames[0];
+      let bestLen = 0;
+      for (const name of wb.SheetNames) {
+        const r = XLSX.utils.sheet_to_json(wb.Sheets[name], { defval: "" });
+        if (r.length > bestLen) { bestLen = r.length; best = name; }
+      }
+      sheetName = best;
+      rows = XLSX.utils.sheet_to_json(wb.Sheets[best], { defval: "" });
+    } else {
+      sheetName = wb.SheetNames[0];
+      rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: "" });
+    }
   } else {
     const text = decodeCsvBuffer(buf);
     const result = Papa.parse<Record<string, unknown>>(text, {
@@ -398,8 +424,10 @@ export async function parseFile(file: File): Promise<Dataset> {
   // отбрасываем полностью пустые строки и служебные колонки
   rows = rows.filter((r) => Object.values(r).some((v) => v != null && String(v).trim() !== ""));
   if (!rows.length) throw new Error("Файл не содержит данных");
-  if (rows.length > 100000) rows = rows.slice(0, 100000);
+  let truncated = false;
+  if (rows.length > 100000) { rows = rows.slice(0, 100000); truncated = true; }
 
   const columns = profileColumns(rows);
-  return { name: file.name, rows, columns };
+  const name = sheetName && sheetName !== file.name ? `${file.name} · ${sheetName}` : file.name;
+  return { name, rows, columns, truncated };
 }
