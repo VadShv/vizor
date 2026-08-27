@@ -10,6 +10,9 @@ import {
   Columns3,
   Sparkles,
   ArrowUpDown,
+  Search,
+  Download,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -23,6 +26,7 @@ import {
   timeSeries,
   correlation,
   toNumber,
+  profileColumns,
 } from "@/lib/dataEngine";
 import {
   CategoryBarCard,
@@ -32,6 +36,28 @@ import {
   ScatterCard,
 } from "@/components/charts";
 import { Logo } from "@/components/logo";
+
+function exportCsv(ds: Dataset) {
+  const headers = ds.columns.map((c) => c.name);
+  const lines = [headers.join(",")];
+  for (const row of ds.rows) {
+    lines.push(
+      headers
+        .map((h) => {
+          const v = String(row[h] ?? "");
+          return v.includes(",") || v.includes('"') ? `"${v.replace(/"/g, '""')}"` : v;
+        })
+        .join(","),
+    );
+  }
+  const blob = new Blob(["\uFEFF" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = ds.name.replace(/\.[^.]+$/, "") + "-export.csv";
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 const TYPE_LABELS: Record<string, string> = {
   numeric: "число",
@@ -232,19 +258,36 @@ function DataTable({ ds }: { ds: Dataset }) {
 export default function Dashboard() {
   const { dataset, theme, toggleTheme } = useData();
   const [, navigate] = useLocation();
+  const [searchQuery, setSearchQuery] = useState("");
 
   const picked = useMemo(() => (dataset ? pickColumns(dataset) : null), [dataset]);
-  const insights = useMemo(() => (dataset ? buildInsights(dataset) : []), [dataset]);
+
+  const filteredDataset = useMemo(() => {
+    if (!dataset) return null;
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return dataset;
+    const rows = dataset.rows.filter((r) =>
+      Object.values(r).some((v) => v != null && String(v).toLowerCase().includes(q)),
+    );
+    if (!rows.length) return { ...dataset, rows: [], columns: dataset.columns };
+    return { ...dataset, rows, columns: profileColumns(rows) };
+  }, [dataset, searchQuery]);
+
+  const insights = useMemo(
+    () => (filteredDataset ? buildInsights(filteredDataset) : []),
+    [filteredDataset],
+  );
 
   useEffect(() => {
     if (!dataset) navigate("/");
   }, [dataset, navigate]);
 
-  if (!dataset || !picked) return null;
+  if (!dataset || !picked || !filteredDataset) return null;
 
   const { numCols, dateCols, catCols } = picked;
   const defaultMetric = numCols[0];
-  const dsKey = `${dataset.name}:${dataset.rows.length}:${dataset.columns.length}`;
+  const dsKey = `${dataset.name}:${filteredDataset.rows.length}:${searchQuery}`;
+  const showDs = filteredDataset;
 
   return (
     <div className="min-h-dvh bg-background text-foreground">
@@ -256,10 +299,35 @@ export default function Dashboard() {
               {dataset.name}
             </h1>
             <p className="text-xs text-muted-foreground font-mono tabular-nums">
-              {dataset.rows.length.toLocaleString("ru-RU")} строк · {dataset.columns.length} колонок
+              {showDs.rows.length.toLocaleString("ru-RU")}
+              {searchQuery && ` / ${dataset.rows.length.toLocaleString("ru-RU")}`} строк · {dataset.columns.length} колонок
             </p>
           </div>
           <div className="ml-auto flex items-center gap-2">
+            <div className="relative hidden sm:block">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Поиск…"
+                className="h-8 w-40 pl-8 pr-7 rounded-md border border-border bg-background text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                data-testid="input-search"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  aria-label="Очистить"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+            <Button variant="outline" size="sm" onClick={() => exportCsv(showDs)} data-testid="button-export-csv">
+              <Download className="h-3.5 w-3.5 mr-1.5" />
+              CSV
+            </Button>
             <Button variant="ghost" size="icon" onClick={toggleTheme} data-testid="button-theme-dash" aria-label="Переключить тему">
               {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </Button>
@@ -282,7 +350,7 @@ export default function Dashboard() {
           ))}
         </div>
 
-        <KpiRow ds={dataset} />
+        <KpiRow ds={showDs} />
 
         {insights.length > 0 && (
           <Card className="p-5" data-testid="card-insights">
@@ -307,13 +375,13 @@ export default function Dashboard() {
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {dateCols.length > 0 && numCols.length > 0 && (
-            <TimeSeriesCard key={`ts-${dsKey}`} dataset={dataset} dateCol={dateCols[0]} metrics={numCols} defaultMetric={defaultMetric} />
+            <TimeSeriesCard key={`ts-${dsKey}`} dataset={showDs} dateCol={dateCols[0]} metrics={numCols} defaultMetric={defaultMetric} />
           )}
           {catCols.slice(0, 2).map((cat, i) =>
             numCols.length > 0 ? (
               <CategoryBarCard
                 key={`bar-${cat}-${dsKey}`}
-                dataset={dataset}
+                dataset={showDs}
                 dim={cat}
                 metrics={numCols}
                 defaultMetric={defaultMetric}
@@ -324,19 +392,19 @@ export default function Dashboard() {
           {catCols.length > 0 && (
             <DonutCard
               key={`donut-${dsKey}`}
-              dataset={dataset}
+              dataset={showDs}
               dim={catCols.length > 2 ? catCols[2] : catCols[0]}
               metrics={numCols}
               defaultMetric={numCols[0] ?? "__count__"}
             />
           )}
           {numCols.length > 0 && (
-            <HistogramCard key={`hist-${dsKey}`} dataset={dataset} metrics={numCols} defaultMetric={defaultMetric} />
+            <HistogramCard key={`hist-${dsKey}`} dataset={showDs} metrics={numCols} defaultMetric={defaultMetric} />
           )}
-          {numCols.length >= 2 && <ScatterCard key={`scatter-${dsKey}`} dataset={dataset} numCols={numCols} />}
+          {numCols.length >= 2 && <ScatterCard key={`scatter-${dsKey}`} dataset={showDs} numCols={numCols} />}
         </div>
 
-        <DataTable ds={dataset} />
+        <DataTable ds={showDs} />
       </main>
     </div>
   );
