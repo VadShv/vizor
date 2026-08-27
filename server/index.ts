@@ -1,105 +1,67 @@
-import "dotenv/config";
-import express, { Response, NextFunction } from 'express';
-import type { Request } from 'express';
-import { registerRoutes } from "./routes";
-import { serveStatic } from "./static";
-import { createServer } from "node:http";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { readFile, stat } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const app = express();
-const httpServer = createServer(app);
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const distPath = path.resolve(__dirname, "public");
 
-declare module "http" {
-  interface IncomingMessage {
-    rawBody: unknown;
-  }
+if (!existsSync(distPath)) {
+  throw new Error(`Build directory not found: ${distPath}. Run "npm run build" first.`);
 }
 
-app.use(
-  express.json({
-    verify: (req, _res, buf) => {
-      req.rawBody = buf;
-    },
-  }),
-);
+const MIME: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".svg": "image/svg+xml",
+  ".ico": "image/x-icon",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".map": "application/json",
+};
 
-app.use(express.urlencoded({ extended: false }));
+async function serve(req: IncomingMessage, res: ServerResponse) {
+  try {
+    const urlPath = decodeURIComponent(req.url?.split("?")[0] || "/");
+    let filePath = path.join(distPath, urlPath);
 
-export function log(message: string, source = "express") {
-  const formattedTime = new Date().toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: true,
-  });
-
-  console.log(`${formattedTime} [${source}] ${message}`);
-}
-
-app.use((req, res, next) => {
-  const start = Date.now();
-  const path = req.path;
-  let capturedJsonResponse: Record<string, any> | undefined = undefined;
-
-  const originalResJson = res.json;
-  res.json = function (bodyJson, ...args) {
-    capturedJsonResponse = bodyJson;
-    return originalResJson.apply(res, [bodyJson, ...args]);
-  };
-
-  res.on("finish", () => {
-    const duration = Date.now() - start;
-    if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+    if (urlPath === "/" || !path.extname(filePath)) {
+      filePath = path.join(distPath, "index.html");
+    } else {
+      try {
+        const s = await stat(filePath);
+        if (s.isDirectory()) filePath = path.join(filePath, "index.html");
+      } catch {
+        filePath = path.join(distPath, "index.html");
       }
-
-      log(logLine);
-    }
-  });
-
-  next();
-});
-
-(async () => {
-  await registerRoutes(httpServer, app);
-
-  app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
-
-    console.error("Internal Server Error:", err);
-
-    if (res.headersSent) {
-      return next(err);
     }
 
-    return res.status(status).json({ message });
-  });
-
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
-  if (process.env.NODE_ENV === "production") {
-    serveStatic(app);
-  } else {
-    const { setupVite } = await import("./vite");
-    await setupVite(httpServer, app);
+    const data = await readFile(filePath);
+    const ext = path.extname(filePath);
+    res.writeHead(200, { "Content-Type": MIME[ext] || "application/octet-stream" });
+    res.end(data);
+  } catch {
+    const fallback = await readFile(path.join(distPath, "index.html"));
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(fallback);
   }
+}
 
-  // ALWAYS serve the app on the port specified in the environment variable PORT
-  // Other ports are firewalled. Default to 5000 if not specified.
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
-  const port = parseInt(process.env.PORT || "5000", 10);
-  httpServer.listen(
-    {
-      port,
-      host: "0.0.0.0",
-      reusePort: true,
-    },
-    () => {
-      log(`serving on port ${port}`);
-    },
-  );
-})();
+const port = parseInt(process.env.PORT || "5000", 10);
+createServer(serve).listen(
+  { port, host: "0.0.0.0", reusePort: true },
+  () => {
+    const time = new Date().toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: true,
+    });
+    console.log(`${time} [server] serving on port ${port}`);
+  },
+);
