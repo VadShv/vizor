@@ -1,0 +1,33 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --no-audit --no-fund
+      - run: npm test
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1
+        with:
+          host: 176.108.250.112
+          username: user1
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            cd ~/vizor
+            git pull origin main
+            npm install --no-audit --no-fund
+            npm run build
+            pm2 restart vizor || pm2 start dist/index.mjs --name vizor --env production
