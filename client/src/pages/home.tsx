@@ -4,9 +4,21 @@ import { UploadCloud, FileSpreadsheet, Table2, Sparkles, BarChart3, Loader2, Moo
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useData } from "@/lib/DataContext";
-import { parseFile } from "@/lib/dataEngine";
+import type { Dataset } from "@/lib/dataEngine";
 import { salesDemo, hrDemo } from "@/lib/demoData";
 import { Logo } from "@/components/logo";
+
+function parseFileInWorker(file: File): Promise<Dataset> {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL("../lib/parseWorker.ts", import.meta.url), { type: "module" });
+    worker.onmessage = (e: MessageEvent<{ ok: boolean; dataset?: Dataset; error?: string }>) => {
+      worker.terminate();
+      if (e.data.ok) resolve(e.data.dataset!);
+      else reject(new Error(e.data.error));
+    };
+    worker.postMessage(file);
+  });
+}
 
 export default function Home() {
   const { setDataset, theme, toggleTheme } = useData();
@@ -29,7 +41,7 @@ export default function Home() {
       }
       setLoading(true);
       try {
-        const ds = await parseFile(file);
+        const ds = await parseFileInWorker(file);
         setDataset(ds);
         navigate("/dashboard");
       } catch (e) {

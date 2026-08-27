@@ -1,7 +1,6 @@
 // Ядро анализа данных: парсинг файлов, профилирование колонок, агрегации
 
 import Papa from "papaparse";
-import * as XLSX from "xlsx";
 
 export type ColumnType = "numeric" | "date" | "categorical" | "text";
 
@@ -382,6 +381,7 @@ export async function parseFile(file: File): Promise<Dataset> {
   let rows: Record<string, unknown>[] = [];
 
   if (ext === "xlsx" || ext === "xls") {
+    const XLSX = await import("xlsx");
     const wb = XLSX.read(buf, { cellDates: true });
     const sheet = wb.Sheets[wb.SheetNames[0]];
     rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });

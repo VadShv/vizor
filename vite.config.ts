@@ -21,4 +21,7 @@ export default defineConfig({
       deny: ["**/.*"],
     },
   },
+  worker: {
+    format: "es",
+  },
 });
