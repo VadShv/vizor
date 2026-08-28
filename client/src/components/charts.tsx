@@ -9,12 +9,15 @@ import {
   Tooltip,
   AreaChart,
   Area,
+  Line,
+  LineChart,
   PieChart,
   Pie,
   Cell,
   ScatterChart,
   Scatter,
   ZAxis,
+  ComposedChart,
 } from "recharts";
 import { Card } from "@/components/ui/card";
 import {
@@ -34,6 +37,11 @@ import {
   scatterData,
   correlation,
   formatNumber,
+  detectAnomalies,
+  forecastLinear,
+  rankWithTrend,
+  pareto,
+  type RankItem,
 } from "@/lib/dataEngine";
 
 export const CHART_COLORS = [
@@ -213,14 +221,48 @@ export function TimeSeriesCard({
 }) {
   const [metric, setMetric] = useState(defaultMetric);
   const [agg, setAgg] = useState<AggFn>("sum");
-  const { data } = useMemo(
+  const { data, grain } = useMemo(
     () => timeSeries(dataset.rows, dateCol, agg === "count" ? null : metric, agg),
     [dataset, dateCol, metric, agg],
   );
+
+  const { chartData, anomalies, forecastPts } = useMemo(() => {
+    const pts = data.map((d) => ({ t: d.t, value: d.value }));
+    const anoms = detectAnomalies(pts, 2.2);
+    const anomSet = new Set(anoms.map((a) => a.t));
+    const fc = forecastLinear(pts, Math.min(5, Math.max(2, Math.floor(data.length / 4))));
+    const fmtLabel = (t: number) => {
+      const d = new Date(t);
+      if (grain === "year") return String(d.getFullYear());
+      if (grain === "month") return `${d.getMonth() + 1}.${String(d.getFullYear()).slice(2)}`;
+      return `${d.getDate()}.${d.getMonth() + 1}`;
+    };
+    const combined = [
+      ...data.map((d) => ({
+        label: d.label,
+        value: d.value,
+        forecast: null as number | null,
+        anomaly: anomSet.has(d.t),
+      })),
+      ...fc.map((f) => ({
+        label: fmtLabel(f.t),
+        value: null as number | null,
+        forecast: f.value,
+        anomaly: false,
+      })),
+    ];
+    return { chartData: combined, anomalies: anoms, forecastPts: fc };
+  }, [data, grain]);
+
+  const anomalyCount = anomalies.size;
+  const subtitleParts = [`${AGG_LABELS[agg]}${agg !== "count" ? ` · ${metric}` : " строк"}`];
+  if (anomalyCount) subtitleParts.push(`${anomalyCount} аномал.`);
+  if (forecastPts.length) subtitleParts.push(`прогноз +${forecastPts.length}`);
+
   return (
     <ChartShell
       title={`Динамика по «${dateCol}»`}
-      subtitle={`${AGG_LABELS[agg]}${agg !== "count" ? ` · ${metric}` : " строк"}`}
+      subtitle={subtitleParts.join(" · ")}
       testId="chart-timeseries"
       className="lg:col-span-2"
       controls={
@@ -233,7 +275,7 @@ export function TimeSeriesCard({
       }
     >
       <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={data} margin={{ left: 8, right: 16, top: 8, bottom: 4 }}>
+        <ComposedChart data={chartData} margin={{ left: 8, right: 16, top: 8, bottom: 4 }}>
           <defs>
             <linearGradient id="tsFill" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor="hsl(var(--chart-1))" stopOpacity={0.28} />
@@ -243,7 +285,10 @@ export function TimeSeriesCard({
           <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
           <XAxis dataKey="label" tick={axisTick} axisLine={false} tickLine={false} minTickGap={24} />
           <YAxis tick={axisTick} tickFormatter={formatNumber} axisLine={false} tickLine={false} width={52} />
-          <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => [formatNumber(v), AGG_LABELS[agg]]} />
+          <Tooltip
+            contentStyle={tooltipStyle}
+            formatter={(v: number | null) => (v != null ? [formatNumber(v), AGG_LABELS[agg]] : ["", ""])}
+          />
           <Area
             type="monotone"
             dataKey="value"
@@ -251,8 +296,23 @@ export function TimeSeriesCard({
             strokeWidth={2}
             fill="url(#tsFill)"
             isAnimationActive
+            dot={(props: { cx?: number; cy?: number; payload?: { anomaly?: boolean } }) => {
+              if (!props.payload?.anomaly) return false;
+              return { cx: props.cx, cy: props.cy, r: 4, fill: "hsl(var(--destructive))", stroke: "hsl(var(--background))", strokeWidth: 1.5 };
+            }}
           />
-        </AreaChart>
+          {forecastPts.length > 0 && (
+            <Line
+              type="monotone"
+              dataKey="forecast"
+              stroke="hsl(var(--chart-4))"
+              strokeWidth={1.5}
+              strokeDasharray="5 4"
+              dot={false}
+              isAnimationActive
+            />
+          )}
+        </ComposedChart>
       </ResponsiveContainer>
     </ChartShell>
   );
@@ -391,6 +451,72 @@ export function ScatterCard({ dataset, numCols }: { dataset: Dataset; numCols: s
           <Scatter data={data} fill="hsl(var(--chart-2))" fillOpacity={0.55} isAnimationActive />
         </ScatterChart>
       </ResponsiveContainer>
+    </ChartShell>
+  );
+}
+
+export function LeaderboardCard({
+  dataset,
+  dim,
+  metrics,
+  defaultMetric,
+  dateCol,
+}: {
+  dataset: Dataset;
+  dim: string;
+  metrics: string[];
+  defaultMetric: string;
+  dateCol?: string;
+}) {
+  const [metric, setMetric] = useState(defaultMetric);
+  const [agg, setAgg] = useState<AggFn>("sum");
+  const items = useMemo(
+    () => rankWithTrend(dataset.rows, dim, agg === "count" ? null : metric, agg, dateCol, 8),
+    [dataset, dim, metric, agg, dateCol],
+  );
+  const maxValue = Math.max(...items.map((i) => i.value), 1);
+  const paretoData = pareto(items.map((i) => ({ label: i.label, value: i.value })));
+  const top80 = paretoData.find((p) => p.cumPct >= 80);
+
+  return (
+    <ChartShell
+      title={`Лидеры по «${dim}»`}
+      subtitle={`${AGG_LABELS[agg]}${agg !== "count" ? ` · ${metric}` : ""}${top80 ? ` · топ-${paretoData.indexOf(top80) + 1} = 80%` : ""}`}
+      testId="chart-leaderboard"
+      controls={
+        <>
+          {agg !== "count" && (
+            <MetricSelect value={metric} options={metrics} onChange={setMetric} testId="select-metric-lb" />
+          )}
+          <AggSelect value={agg} onChange={setAgg} testId="select-agg-lb" />
+        </>
+      }
+    >
+      <div className="h-full overflow-y-auto space-y-2 pr-1">
+        {items.map((item, i) => (
+          <div key={item.label} className="flex items-center gap-2 text-xs" data-testid={`leaderboard-item-${i}`}>
+            <span className="w-5 text-muted-foreground font-mono shrink-0">{i + 1}</span>
+            <span className="w-24 truncate shrink-0" title={item.label}>{item.label}</span>
+            <div className="flex-1 h-5 rounded bg-muted/50 overflow-hidden relative">
+              <div
+                className="h-full rounded"
+                style={{ width: `${(item.value / maxValue) * 100}%`, backgroundColor: `hsl(var(--chart-${(i % 6) + 1}))` }}
+              />
+            </div>
+            <span className="w-16 text-right font-mono tabular-nums shrink-0">{formatNumber(item.value)}</span>
+            <span className="w-10 text-right text-muted-foreground font-mono tabular-nums shrink-0">{Math.round(item.share)}%</span>
+            <span className="w-12 text-right shrink-0 font-mono tabular-nums">
+              {item.trend !== null ? (
+                <span className={item.trend >= 0 ? "text-primary" : "text-destructive"}>
+                  {item.trend >= 0 ? "↑" : "↓"}{Math.abs(Math.round(item.trend))}%
+                </span>
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              )}
+            </span>
+          </div>
+        ))}
+      </div>
     </ChartShell>
   );
 }

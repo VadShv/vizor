@@ -359,6 +359,138 @@ export function correlation(rows: Record<string, unknown>[], a: string, b: strin
   return cov / Math.sqrt(vx * vy);
 }
 
+// ---------- Decision-oriented analysis ----------
+
+/** Дельта последнего периода к предыдущему (split пополам) */
+export function periodDelta(
+  rows: Record<string, unknown>[],
+  dateCol: string,
+  metric: string | null,
+  agg: AggFn,
+): { current: number; previous: number; deltaPct: number } | null {
+  const { data } = timeSeries(rows, dateCol, metric, agg);
+  if (data.length < 4) return null;
+  const half = Math.floor(data.length / 2);
+  const previous = data.slice(0, half).reduce((a, b) => a + b.value, 0);
+  const current = data.slice(half).reduce((a, b) => a + b.value, 0);
+  if (previous === 0) return null;
+  return { current, previous, deltaPct: ((current - previous) / previous) * 100 };
+}
+
+/** Детект аномалий: точки вне threshold × σ от скользящего среднего */
+export function detectAnomalies(
+  data: { t: number; value: number }[],
+  threshold = 2,
+): { t: number; value: number; zscore: number }[] {
+  if (data.length < 6) return [];
+  const window = Math.min(5, Math.floor(data.length / 3));
+  const anomalies: { t: number; value: number; zscore: number }[] = [];
+  for (let i = window; i < data.length; i++) {
+    const slice = data.slice(i - window, i).map((d) => d.value);
+    const mean = slice.reduce((a, b) => a + b, 0) / slice.length;
+    const variance = slice.reduce((a, b) => a + (b - mean) ** 2, 0) / slice.length;
+    const std = Math.sqrt(variance);
+    if (std === 0) continue;
+    const z = (data[i].value - mean) / std;
+    if (Math.abs(z) >= threshold) {
+      anomalies.push({ t: data[i].t, value: data[i].value, zscore: z });
+    }
+  }
+  return anomalies;
+}
+
+/** Линейный прогноз на N точек вперёд */
+export function forecastLinear(
+  data: { t: number; value: number }[],
+  periods: number,
+): { t: number; value: number }[] {
+  if (data.length < 3) return [];
+  const n = data.length;
+  const xs = data.map((_, i) => i);
+  const ys = data.map((d) => d.value);
+  const mx = xs.reduce((a, b) => a + b, 0) / n;
+  const my = ys.reduce((a, b) => a + b, 0) / n;
+  let cov = 0;
+  let varX = 0;
+  for (let i = 0; i < n; i++) {
+    cov += (xs[i] - mx) * (ys[i] - my);
+    varX += (xs[i] - mx) ** 2;
+  }
+  if (varX === 0) return [];
+  const slope = cov / varX;
+  const intercept = my - slope * mx;
+  const result: { t: number; value: number }[] = [];
+  const lastT = data[n - 1].t;
+  const interval = n > 1 ? data[n - 1].t - data[n - 2].t : 0;
+  for (let i = 1; i <= periods; i++) {
+    const x = n - 1 + i;
+    result.push({ t: lastT + interval * i, value: slope * x + intercept });
+  }
+  return result;
+}
+
+/** Ранжирование сегментов с трендом к предыдущему периоду */
+export interface RankItem {
+  label: string;
+  value: number;
+  share: number;
+  trend: number | null;
+}
+
+export function rankWithTrend(
+  rows: Record<string, unknown>[],
+  dim: string,
+  metric: string | null,
+  agg: AggFn,
+  dateCol?: string,
+  topN = 10,
+): RankItem[] {
+  const total = groupBy(rows, dim, metric, agg, 100).reduce((a, b) => a + b.value, 0) || 1;
+  const groups = groupBy(rows, dim, metric, agg, topN);
+
+  let trendMap: Map<string, number | null> | null = null;
+  if (dateCol) {
+    const { data } = timeSeries(rows, dateCol, null, "count");
+    if (data.length >= 4) {
+      const halfDate = data[Math.floor(data.length / 2)].t;
+      const prev = new Map<string, number>();
+      const curr = new Map<string, number>();
+      for (const r of rows) {
+        const d = toDate(r[dateCol]);
+        if (!d) continue;
+        const key = String(r[dim] ?? "").trim() || "(пусто)";
+        const isCurr = d.getTime() >= halfDate;
+        const v = metric ? toNumber(r[metric]) : 1;
+        if (v === null) continue;
+        if (isCurr) curr.set(key, (curr.get(key) ?? 0) + v);
+        else prev.set(key, (prev.get(key) ?? 0) + v);
+      }
+      trendMap = new Map();
+      for (const [key, c] of curr) {
+        const p = prev.get(key);
+        trendMap.set(key, p && p !== 0 ? ((c - p) / p) * 100 : null);
+      }
+    }
+  }
+
+  return groups.map((g) => ({
+    label: g.label,
+    value: g.value,
+    share: (g.value / total) * 100,
+    trend: (trendMap?.get(g.label) as number | null) ?? null,
+  }));
+}
+
+/** Парето: кумулятивный вклад */
+export function pareto(groups: GroupResult[]): { label: string; value: number; cumPct: number }[] {
+  const total = groups.reduce((a, b) => a + b.value, 0) || 1;
+  let cum = 0;
+  return groups.map((g) => {
+    cum += g.value;
+    return { label: g.label, value: g.value, cumPct: (cum / total) * 100 };
+  });
+}
+
 // ---------- Formatting ----------
 
 export function formatNumber(n: number): string {
