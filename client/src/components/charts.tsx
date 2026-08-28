@@ -298,7 +298,16 @@ export function TimeSeriesCard({
             isAnimationActive
             dot={(props: { cx?: number; cy?: number; payload?: { anomaly?: boolean } }) => {
               if (!props.payload?.anomaly) return false;
-              return { cx: props.cx, cy: props.cy, r: 4, fill: "hsl(var(--destructive))", stroke: "hsl(var(--background))", strokeWidth: 1.5 };
+              return (
+                <circle
+                  cx={props.cx}
+                  cy={props.cy}
+                  r={4}
+                  fill="hsl(var(--destructive))"
+                  stroke="hsl(var(--background))"
+                  strokeWidth={1.5}
+                />
+              );
             }}
           />
           {forecastPts.length > 0 && (
