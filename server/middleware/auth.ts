@@ -8,7 +8,7 @@ const JWT_SECRET = process.env.JWT_SECRET || "vizor-dev-secret-change-in-product
 
 export async function createToken(userId: string, email: string): Promise<string> {
   const exp = Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60;
-  return sign({ sub: userId, email, exp }, JWT_SECRET);
+  return sign({ sub: userId, email, exp }, JWT_SECRET, "HS256");
 }
 
 export async function authMiddleware(c: Context, next: () => Promise<void>) {
@@ -18,7 +18,7 @@ export async function authMiddleware(c: Context, next: () => Promise<void>) {
   }
   try {
     const token = authHeader.slice(7);
-    const payload = (await verify(token, JWT_SECRET)) as { sub: string };
+    const payload = (await verify(token, JWT_SECRET, "HS256")) as { sub: string };
     const [user] = await db.select().from(users).where(eq(users.id, payload.sub));
     if (!user) return c.json({ error: "Пользователь не найден" }, 401);
     c.set("user", user);
