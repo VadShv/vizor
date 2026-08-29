@@ -35,7 +35,7 @@ r.post("/", async (c) => {
 r.get("/:id", async (c) => {
   const user = c.get("user") as typeof users.$inferSelect;
   const id = c.req.param("id");
-  const ds = await db.select().from(datasets).where(eq(datasets.id, id)).get();
+  const [ds] = await db.select().from(datasets).where(eq(datasets.id, id));
   if (!ds) return c.json({ error: "Не найдено" }, 404);
   const role = await getOrgRole(user.id, ds.orgId);
   if (!role) return c.json({ error: "Нет доступа" }, 403);
@@ -45,7 +45,7 @@ r.get("/:id", async (c) => {
 r.patch("/:id", async (c) => {
   const user = c.get("user") as typeof users.$inferSelect;
   const id = c.req.param("id");
-  const ds = await db.select().from(datasets).where(eq(datasets.id, id)).get();
+  const [ds] = await db.select().from(datasets).where(eq(datasets.id, id));
   if (!ds) return c.json({ error: "Не найдено" }, 404);
   const role = await getOrgRole(user.id, ds.orgId);
   if (!role || role === "viewer") return c.json({ error: "Нет прав" }, 403);
@@ -57,7 +57,7 @@ r.patch("/:id", async (c) => {
 r.delete("/:id", async (c) => {
   const user = c.get("user") as typeof users.$inferSelect;
   const id = c.req.param("id");
-  const ds = await db.select().from(datasets).where(eq(datasets.id, id)).get();
+  const [ds] = await db.select().from(datasets).where(eq(datasets.id, id));
   if (!ds) return c.json({ error: "Не найдено" }, 404);
   const role = await getOrgRole(user.id, ds.orgId);
   if (!role || role === "viewer") return c.json({ error: "Нет прав" }, 403);

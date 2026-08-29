@@ -23,7 +23,7 @@ auth.post("/register", async (c) => {
   const parsed = registerSchema.safeParse(body);
   if (!parsed.success) return c.json({ error: parsed.error.issues[0].message }, 400);
   const { email, password, name } = parsed.data;
-  const existing = await db.select().from(users).where(eq(users.email, email)).get();
+  const [existing] = await db.select().from(users).where(eq(users.email, email));
   if (existing) return c.json({ error: "Email уже зарегистрирован" }, 409);
   const passwordHash = await bcrypt.hash(password, 10);
   const [user] = await db.insert(users).values({ email, passwordHash, name }).returning();
@@ -38,7 +38,7 @@ auth.post("/login", async (c) => {
   const body = await c.req.json();
   const { email, password } = body;
   if (!email || !password) return c.json({ error: "Неверный email или пароль" }, 400);
-  const user = await db.select().from(users).where(eq(users.email, email)).get();
+  const [user] = await db.select().from(users).where(eq(users.email, email));
   if (!user) return c.json({ error: "Неверный email или пароль" }, 401);
   const valid = await bcrypt.compare(password, user.passwordHash);
   if (!valid) return c.json({ error: "Неверный email или пароль" }, 401);

@@ -18,7 +18,7 @@ export async function authMiddleware(c: Context, next: () => Promise<void>) {
   try {
     const token = authHeader.slice(7);
     const payload = (await verify(token, JWT_SECRET)) as { sub: string };
-    const user = await db.select().from(users).where(eq(users.id, payload.sub)).get();
+    const [user] = await db.select().from(users).where(eq(users.id, payload.sub));
     if (!user) return c.json({ error: "Пользователь не найден" }, 401);
     c.set("user", user);
     await next();
@@ -32,6 +32,6 @@ export async function getOrgRole(userId: string, orgId: string): Promise<string 
     .select()
     .from(orgMembers)
     .where(and(eq(orgMembers.orgId, orgId), eq(orgMembers.userId, userId)))
-    .get();
+    ;
   return member?.role ?? null;
 }

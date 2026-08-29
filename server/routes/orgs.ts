@@ -46,9 +46,9 @@ orgs.post("/:orgId/invite", async (c) => {
   const role = await getOrgRole(user.id, orgId);
   if (role !== "owner" && role !== "admin") return c.json({ error: "Нет прав" }, 403);
   const { email, role: newRole } = await c.req.json();
-  const invitee = await db.select().from(users).where(eq(users.email, email)).get();
+  const [invitee] = await db.select().from(users).where(eq(users.email, email));
   if (!invitee) return c.json({ error: "Пользователь не найден" }, 404);
-  const existing = await db.select().from(orgMembers).where(and(eq(orgMembers.orgId, orgId), eq(orgMembers.userId, invitee.id))).get();
+  const [existing] = await db.select().from(orgMembers).where(and(eq(orgMembers.orgId, orgId), eq(orgMembers.userId, invitee.id)));
   if (existing) return c.json({ error: "Уже участник" }, 409);
   await db.insert(orgMembers).values({ orgId, userId: invitee.id, role: newRole || "viewer" });
   return c.json({ ok: true });
