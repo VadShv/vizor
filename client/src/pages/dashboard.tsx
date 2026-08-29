@@ -41,6 +41,8 @@ import {
   HistogramCard,
   ScatterCard,
   LeaderboardCard,
+  CorrelationHeatmapCard,
+  Sparkline,
 } from "@/components/charts";
 import { Logo } from "@/components/logo";
 
@@ -173,23 +175,30 @@ function HeadlineMetrics({ ds, dateCols, numCols }: { ds: Dataset; dateCols: str
     return periodDelta(ds.rows, dateCols[0], mainMetric, "sum");
   }, [ds, dateCols, mainMetric]);
 
+  const sparkData = useMemo(() => {
+    if (!dateCols.length || !mainMetric) return [];
+    const { data } = timeSeries(ds.rows, dateCols[0], mainMetric, "sum");
+    return data.map((d) => d.value);
+  }, [ds, dateCols, mainMetric]);
+
   if (!mainMetric || !mainCol) return null;
   const mainValue = isPercentLike(mainMetric) ? mainCol.mean : mainCol.sum;
 
   return (
     <div className="space-y-3">
-      <Card className="p-5" data-testid="card-headline">
-        <div className="flex items-end gap-4 flex-wrap">
-          <div className="min-w-0">
-            <div className="text-xs text-muted-foreground uppercase tracking-wide">
-              {isPercentLike(mainMetric) ? "Среднее" : "Сумма"} · {mainMetric}
-            </div>
-            <div className="mt-1 text-3xl font-bold font-mono tabular-nums" data-testid="headline-value">
-              {formatNumber(mainValue ?? 0)}
-            </div>
+      <Card className="p-5 relative overflow-hidden" data-testid="card-headline">
+        <div className="absolute top-0 right-0 w-40 h-full opacity-60 pointer-events-none">
+          {sparkData.length > 1 && <div className="h-full flex items-center"><Sparkline data={sparkData} color="hsl(var(--chart-1))" width={160} height={48} /></div>}
+        </div>
+        <div className="relative">
+          <div className="text-xs text-muted-foreground uppercase tracking-wide">
+            {isPercentLike(mainMetric) ? "Среднее" : "Сумма"} · {mainMetric}
+          </div>
+          <div className="mt-1 text-3xl font-bold font-mono tabular-nums" data-testid="headline-value">
+            {formatNumber(mainValue ?? 0)}
           </div>
           {mainDelta && (
-            <div className={`flex items-center gap-1.5 text-sm font-medium pb-1.5 ${mainDelta.deltaPct >= 0 ? "text-primary" : "text-destructive"}`} data-testid="headline-delta">
+            <div className={`mt-2 inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-sm font-medium ${mainDelta.deltaPct >= 0 ? "bg-primary/10 text-primary" : "bg-destructive/10 text-destructive"}`} data-testid="headline-delta">
               {mainDelta.deltaPct >= 0 ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
               {mainDelta.deltaPct >= 0 ? "+" : ""}{Math.round(mainDelta.deltaPct)}% к прошлому периоду
             </div>
@@ -204,16 +213,24 @@ function HeadlineMetrics({ ds, dateCols, numCols }: { ds: Dataset; dateCols: str
             if (!col) return null;
             const val = isPercentLike(name) ? col.mean : col.sum;
             const delta = dateCols.length ? periodDelta(ds.rows, dateCols[0], name, "sum") : null;
+            const spark = useMemo(() => {
+              if (!dateCols.length) return [];
+              const { data } = timeSeries(ds.rows, dateCols[0], name, "sum");
+              return data.map((d) => d.value);
+            }, [ds, dateCols, name]);
             return (
-              <Card className="p-4 min-w-0" key={name} data-testid={`card-metric-${i}`}>
+              <Card className="p-4 min-w-0 relative overflow-hidden" key={name} data-testid={`card-metric-${i}`}>
+                <div className="absolute bottom-1 right-1 opacity-50 pointer-events-none">
+                  {spark.length > 1 && <Sparkline data={spark} color={`hsl(var(--chart-${i + 2}))`} width={70} height={24} />}
+                </div>
                 <div className="text-xs text-muted-foreground truncate" title={name}>
-                  {isPercentLike(name) ? "ср." : "Σ"} {name}
+                  {isPercentLike(name) ? "ср." : "\u03a3"} {name}
                 </div>
                 <div className="mt-1 text-lg font-bold font-mono tabular-nums truncate">{formatNumber(val ?? 0)}</div>
-                <div className="mt-0.5 flex items-center gap-1.5 text-xs font-mono tabular-nums">
+                <div className="mt-0.5 flex items-center gap-1.5 text-xs font-mono tabular-nums relative z-10">
                   {delta ? (
-                    <span className={delta.deltaPct >= 0 ? "text-primary" : "text-destructive"}>
-                      {delta.deltaPct >= 0 ? "↑" : "↓"}{Math.abs(Math.round(delta.deltaPct))}%
+                    <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded ${delta.deltaPct >= 0 ? "bg-primary/10 text-primary" : "bg-destructive/10 text-destructive"}`}>
+                      {delta.deltaPct >= 0 ? "\u2191" : "\u2193"}{Math.abs(Math.round(delta.deltaPct))}%
                     </span>
                   ) : (
                     <span className="text-muted-foreground">ср. {formatNumber(col.mean ?? 0)}</span>
@@ -434,26 +451,30 @@ export default function Dashboard() {
           {numCols.length >= 2 && <ScatterCard key={`scatter-${dsKey}`} dataset={showDs} numCols={numCols} />}
         </div>
 
+        {numCols.length >= 3 && (
+          <CorrelationHeatmapCard key={`corr-${dsKey}`} dataset={showDs} numCols={numCols} />
+        )}
+
         {insights.length > 0 && (
           <Card className="p-5" data-testid="card-insights">
             <div className="flex items-center gap-2 text-sm font-semibold">
               <Sparkles className="h-4 w-4 text-primary" />
               Инсайты
             </div>
-            <ul className="mt-3 grid gap-2 sm:grid-cols-2">
-              {insights.map((ins, i) => (
-                <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground" data-testid={`text-insight-${i}`}>
-                  {ins.includes("снизил") || ins.includes("Аномалия") ? (
-                    <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-destructive" />
-                  ) : ins.includes("выросла") || ins.includes("Лидер") ? (
-                    <ArrowUpRight className="h-4 w-4 mt-0.5 shrink-0 text-primary" />
-                  ) : (
-                    <ArrowDownRight className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />
-                  )}
-                  <span>{ins}</span>
-                </li>
-              ))}
-            </ul>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {insights.map((ins, i) => {
+                const isNegative = ins.includes("снизил") || ins.includes("Аномалия") || ins.includes("пропущен");
+                const isPositive = ins.includes("выросла") || ins.includes("Лидер") || ins.includes("Прямая");
+                const bg = isNegative ? "bg-destructive/5 border-destructive/20" : isPositive ? "bg-primary/5 border-primary/20" : "bg-muted/40 border-border";
+                const icon = isNegative ? <AlertTriangle className="h-4 w-4 shrink-0 text-destructive" /> : isPositive ? <ArrowUpRight className="h-4 w-4 shrink-0 text-primary" /> : <ArrowDownRight className="h-4 w-4 shrink-0 text-muted-foreground" />;
+                return (
+                  <div key={i} className={`flex items-start gap-2.5 p-3 rounded-lg border ${bg} text-sm`} data-testid={`text-insight-${i}`}>
+                    {icon}
+                    <span className="text-foreground/80">{ins}</span>
+                  </div>
+                );
+              })}
+            </div>
           </Card>
         )}
 
