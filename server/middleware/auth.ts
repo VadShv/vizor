@@ -7,7 +7,8 @@ import { eq, and } from "drizzle-orm";
 const JWT_SECRET = process.env.JWT_SECRET || "vizor-dev-secret-change-in-production";
 
 export async function createToken(userId: string, email: string): Promise<string> {
-  return sign({ sub: userId, email }, JWT_SECRET, "7d");
+  const exp = Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60;
+  return sign({ sub: userId, email, exp }, JWT_SECRET);
 }
 
 export async function authMiddleware(c: Context, next: () => Promise<void>) {
