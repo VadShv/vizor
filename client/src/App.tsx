@@ -37,12 +37,12 @@ function AppRouter() {
       <Switch>
         <Route path="/login" component={Login} />
         <Route path="/register" component={Register} />
-        <Route path="/s/:token" component={(p: { token: string }) => <SharedView token={p.token} />} />
+        <Route path="/s/:token" component={(p: { params: { token: string } }) => <SharedView token={p.params.token} />} />
         {user && (
           <>
             <Route path="/" component={DashboardList} />
             <Route path="/upload" component={Upload} />
-            <Route path="/d/:id" component={(p: { id: string }) => <SavedView id={p.id} />} />
+            <Route path="/d/:id" component={(p: { params: { id: string } }) => <SavedView id={p.params.id} />} />
             <Route path="/settings" component={Settings} />
             <Route path="/dashboard" component={Dashboard} />
           </>
