@@ -29,10 +29,9 @@ export async function authMiddleware(c: Context, next: () => Promise<void>) {
 }
 
 export async function getOrgRole(userId: string, orgId: string): Promise<string | null> {
-  const member = await db
+  const [member] = await db
     .select()
     .from(orgMembers)
-    .where(and(eq(orgMembers.orgId, orgId), eq(orgMembers.userId, userId)))
-    ;
+    .where(and(eq(orgMembers.orgId, orgId), eq(orgMembers.userId, userId)));
   return member?.role ?? null;
 }
