@@ -30,7 +30,7 @@ auth.post("/register", async (c) => {
   const slug = slugify(name) + "-" + user.id.slice(0, 8);
   const [org] = await db.insert(organizations).values({ name: name + " — workspace", slug, createdBy: user.id }).returning();
   await db.insert(orgMembers).values({ orgId: org.id, userId: user.id, role: "owner" });
-  const token = createToken(user.id, user.email);
+  const token = await createToken(user.id, user.email);
   return c.json({ user: { id: user.id, email: user.email, name: user.name }, token });
 });
 
@@ -42,7 +42,7 @@ auth.post("/login", async (c) => {
   if (!user) return c.json({ error: "Неверный email или пароль" }, 401);
   const valid = await bcrypt.compare(password, user.passwordHash);
   if (!valid) return c.json({ error: "Неверный email или пароль" }, 401);
-  const token = createToken(user.id, user.email);
+  const token = await createToken(user.id, user.email);
   return c.json({ user: { id: user.id, email: user.email, name: user.name }, token });
 });
 

@@ -6,7 +6,7 @@ import { eq, and } from "drizzle-orm";
 
 const JWT_SECRET = process.env.JWT_SECRET || "vizor-dev-secret-change-in-production";
 
-export function createToken(userId: string, email: string): string {
+export async function createToken(userId: string, email: string): Promise<string> {
   return sign({ sub: userId, email }, JWT_SECRET, "7d");
 }
 
