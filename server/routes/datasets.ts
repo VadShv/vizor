@@ -25,7 +25,8 @@ r.post("/", async (c) => {
   const user = c.get("user") as typeof users.$inferSelect;
   const body = await c.req.json();
   const { orgId, name, sourceFilename, rows, columns } = body;
-  if (!orgId || !name || !rows || !columns) return c.json({ error: "Не хватает данных" }, 400);
+  if (!orgId || typeof orgId !== "string" || !orgId.match(/^[0-9a-f-]{36}$/i)) return c.json({ error: "Неверный ID организации" }, 400);
+  if (!name || !rows || !columns) return c.json({ error: "Не хватает данных" }, 400);
   const role = await getOrgRole(user.id, orgId);
   if (!role || role === "viewer") return c.json({ error: "Нет прав" }, 403);
   const [ds] = await db.insert(datasets).values({ orgId, name, sourceFilename: sourceFilename || null, rows, columns, rowCount: rows.length, createdBy: user.id }).returning();

@@ -46,7 +46,11 @@ export default function Upload() {
   }, [toast]);
 
   const save = async () => {
-    if (!parsed || !currentOrg) return;
+    if (!parsed) return;
+    if (!currentOrg || !currentOrg.id) {
+      toast({ title: "Нет организации", description: "Перезайдите в аккаунт", variant: "destructive" });
+      return;
+    }
     setSaving(true);
     try {
       const result = await api<{ id: string }>("POST", "/api/datasets", { orgId: currentOrg.id, name: parsed.name, sourceFilename: parsed.name, rows: parsed.rows, columns: parsed.columns });
