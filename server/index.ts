@@ -20,6 +20,11 @@ app.route("/api/orgs", orgRoutes);
 app.route("/api/datasets", datasetRoutes);
 app.route("/api", shareRoutes);
 
+app.onError((err, c) => {
+  console.error("[error]", err.message);
+  return c.json({ error: "Внутренняя ошибка сервера" }, 500);
+});
+
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",

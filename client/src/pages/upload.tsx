@@ -54,6 +54,10 @@ export default function Upload() {
     setSaving(true);
     try {
       const result = await api<{ id: string }>("POST", "/api/datasets", { orgId: currentOrg.id, name: parsed.name, sourceFilename: parsed.name, rows: parsed.rows, columns: parsed.columns });
+      if (!result.id || result.id === "undefined") {
+        toast({ title: "Ошибка сохранения", description: "Сервер вернул неверный ответ", variant: "destructive" });
+        return;
+      }
       setDataset(parsed); setDatasetId(result.id); setReadOnly(false);
       navigate(`/d/${result.id}`);
     } catch (e) { toast({ title: "Не удалось сохранить", description: e instanceof Error ? e.message : "Ошибка", variant: "destructive" }); }

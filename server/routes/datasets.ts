@@ -7,10 +7,13 @@ import { authMiddleware, getOrgRole } from "../middleware/auth";
 const r = new Hono();
 r.use("*", authMiddleware);
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const validId = (id: string) => typeof id === "string" && UUID_RE.test(id);
+
 r.get("/", async (c) => {
   const user = c.get("user") as typeof users.$inferSelect;
   const orgId = c.req.query("orgId");
-  if (!orgId) return c.json({ error: "orgId обязателен" }, 400);
+  if (!validId(orgId)) return c.json({ error: "Неверный ID организации" }, 400);
   const role = await getOrgRole(user.id, orgId);
   if (!role) return c.json({ error: "Нет доступа" }, 403);
   const list = await db
@@ -25,7 +28,7 @@ r.post("/", async (c) => {
   const user = c.get("user") as typeof users.$inferSelect;
   const body = await c.req.json();
   const { orgId, name, sourceFilename, rows, columns } = body;
-  if (!orgId || typeof orgId !== "string" || !orgId.match(/^[0-9a-f-]{36}$/i)) return c.json({ error: "Неверный ID организации" }, 400);
+  if (!validId(orgId)) return c.json({ error: "Неверный ID организации" }, 400);
   if (!name || !rows || !columns) return c.json({ error: "Не хватает данных" }, 400);
   const role = await getOrgRole(user.id, orgId);
   if (!role || role === "viewer") return c.json({ error: "Нет прав" }, 403);
@@ -36,6 +39,7 @@ r.post("/", async (c) => {
 r.get("/:id", async (c) => {
   const user = c.get("user") as typeof users.$inferSelect;
   const id = c.req.param("id");
+  if (!validId(id)) return c.json({ error: "Неверный ID" }, 400);
   const [ds] = await db.select().from(datasets).where(eq(datasets.id, id));
   if (!ds) return c.json({ error: "Не найдено" }, 404);
   const role = await getOrgRole(user.id, ds.orgId);
@@ -46,6 +50,7 @@ r.get("/:id", async (c) => {
 r.patch("/:id", async (c) => {
   const user = c.get("user") as typeof users.$inferSelect;
   const id = c.req.param("id");
+  if (!validId(id)) return c.json({ error: "Неверный ID" }, 400);
   const [ds] = await db.select().from(datasets).where(eq(datasets.id, id));
   if (!ds) return c.json({ error: "Не найдено" }, 404);
   const role = await getOrgRole(user.id, ds.orgId);
@@ -58,6 +63,7 @@ r.patch("/:id", async (c) => {
 r.delete("/:id", async (c) => {
   const user = c.get("user") as typeof users.$inferSelect;
   const id = c.req.param("id");
+  if (!validId(id)) return c.json({ error: "Неверный ID" }, 400);
   const [ds] = await db.select().from(datasets).where(eq(datasets.id, id));
   if (!ds) return c.json({ error: "Не найдено" }, 404);
   const role = await getOrgRole(user.id, ds.orgId);
