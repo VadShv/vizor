@@ -4,6 +4,10 @@ import { Dataset } from "./dataEngine";
 interface DataCtx {
   dataset: Dataset | null;
   setDataset: (d: Dataset | null) => void;
+  datasetId: string | null;
+  setDatasetId: (id: string | null) => void;
+  readOnly: boolean;
+  setReadOnly: (v: boolean) => void;
   theme: "light" | "dark";
   toggleTheme: () => void;
 }
@@ -12,6 +16,8 @@ const Ctx = createContext<DataCtx | null>(null);
 
 export function DataProvider({ children }: { children: ReactNode }) {
   const [dataset, setDataset] = useState<Dataset | null>(null);
+  const [datasetId, setDatasetId] = useState<string | null>(null);
+  const [readOnly, setReadOnly] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof window === "undefined") return "light";
     const saved = localStorage.getItem("vizor-theme");
@@ -32,7 +38,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
     document.documentElement.classList.toggle("dark", theme === "dark");
   }
 
-  return <Ctx.Provider value={{ dataset, setDataset, theme, toggleTheme }}>{children}</Ctx.Provider>;
+  return (
+    <Ctx.Provider value={{ dataset, setDataset, datasetId, setDatasetId, readOnly, setReadOnly, theme, toggleTheme }}>
+      {children}
+    </Ctx.Provider>
+  );
 }
 
 export function useData(): DataCtx {
